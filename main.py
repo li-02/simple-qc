@@ -21,7 +21,7 @@ def main():
         "--file-path",
         "-d",
         type=str,
-        default="./data/2024_shisanling_flux_raw_data.csv",
+        default="./2024_shisanling_flux_raw_data.csv",
         help="数据文件路径",
     )
     parser.add_argument("--data-type", "-t", type=str, default="flux", help="数据类型")

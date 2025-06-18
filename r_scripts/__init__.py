@@ -6,10 +6,18 @@ import sys
 import warnings
 
 # 直接设置您的R路径
-R_HOME_PATH = r'C:\Program Files\R\R-4.4.2'
+# R_HOME_PATH = r'C:\Program Files\R\R-4.4.2'
 
 def setup_r_environment():
     """设置R环境变量"""
+    if getattr(sys,'forzen',False):
+        # 打包后的路径
+        base_path=sys._MEIPASS
+        R_HOME_PATH=os.path.join(base_path,'R')
+    else:
+        R_HOME_PATH = r'C:\Program Files\R\R-4.4.2' 
+
+
     # 设置R_HOME
     os.environ['R_HOME'] = R_HOME_PATH
     

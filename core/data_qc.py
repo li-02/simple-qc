@@ -17,7 +17,7 @@ from processors.gap_filling import gap_fill_par, gapfill
 from processors.despiking import despiking_data
 from processors.abnormal_data import del_abnormal_data
 from processors.partitioning import ustar_data
-
+from ARIMA.arima_imputation import fill_missing_values_multicolumn, fill_environmental_data
 
 class DataQc:
     """
@@ -41,6 +41,7 @@ class DataQc:
         ftp,
         logger,
         despiking_z=4,
+        time_freq="30min",
     ):
         """
         初始化数据质量控制类
@@ -59,6 +60,7 @@ class DataQc:
             ftp: FTP站点
             logger: 日志记录器
             despiking_z: 去尖峰的z值，默认为4
+            time_freq: 时间间隔，默认为"30min"
         """
         self.filename = filename
         self.qc_flag_list = qc_flag_list
@@ -72,6 +74,7 @@ class DataQc:
         self.qc_indicators = qc_indicators
         self.data_type = data_type
         self.logger = logger
+        self.time_freq = time_freq
 
         # 将列表数据转换为DataFrame
         if isinstance(data, list):
@@ -98,6 +101,21 @@ class DataQc:
         if self.data_type == "flux":
             self.logger.info("flux数据质量控制")
             self._process_flux_data()
+        elif self.data_type == "aqi":
+            self.logger.info("阈值限制")
+            self._threshold_limit()
+            self.logger.info("aqi数据质量控制")
+            self._process_aqi_data()
+        elif self.data_type == "nai":
+            self.logger.info("阈值限制")
+            self._threshold_limit()
+            self.logger.info("nai数据质量控制")
+            self._process_nai_data()
+        elif self.data_type == "sapflow":
+            self.logger.info("阈值限制")
+            self._threshold_limit()
+            self.logger.info("sapflow数据质量控制")
+            self._process_sapflow_data()
         else:
             self.logger.info(f"{self.data_type}数据质量控制")
             # 其他数据类型的处理逻辑...
@@ -139,16 +157,17 @@ class DataQc:
             if col not in NOT_CONVERT_LIST:
                 self.raw_data[col] = pd.to_numeric(self.raw_data[col], errors="coerce")
 
-        # 确保必要的列存在
-        for col in NEEDED_INDICES:
-            if col not in self.raw_data.columns:
-                self.raw_data[col] = np.nan
+        # 确保必要的列存在 (仅对flux类型数据)
+        if self.data_type == "flux":
+            for col in NEEDED_INDICES:
+                if col not in self.raw_data.columns:
+                    self.raw_data[col] = np.nan
 
     def _process_flux_data(self):
         """处理flux类型数据"""
         # 按照质量标签筛选数据
-        # self.logger.info("根据质量标签筛选数据")
-        # self._filter_by_quality()
+        self.logger.info("根据质量标签筛选数据")
+        self._filter_by_quality()
 
         # 添加存储项
         self.logger.info("添加存储项")
@@ -234,24 +253,43 @@ class DataQc:
         对co2 flux进行u*计算、插补和分区
         对其它指标只进行插补
         """
-        self.logger.info("开始u*筛选、插补和分区处理")
-        processed_data = ustar_data(
+        self.raw_data = ustar_data(
             self.filename,
             self.longitude,
             self.latitude,
             self.timezone,
             self.raw_data,
             self.qc_indicators,
-            self.logger
         )
-        
-        if processed_data is not None and not processed_data.empty:
-            self.raw_data = processed_data
-            self.logger.info(f"u*处理完成，数据行数: {len(self.raw_data)}")
-        else:
-            self.logger.error("u*处理返回空数据，保持原始数据")
 
     def _gap_fill(self):
-        self.raw_data = gapfill(self.filename, self.longitude,
-                                self.latitude, self.timezone, self.raw_data,
-                                self.qc_indicators, self.data_type)
+        """插补处理，对非flux数据保留原始列并创建_filled列"""
+        if self.data_type == "flux":
+            # flux数据使用原有的R脚本插补
+            self.raw_data = gapfill(self.filename, self.longitude,
+                                    self.latitude, self.timezone, self.raw_data,
+                                    self.qc_indicators, self.data_type)
+        else:
+            # 其他数据类型使用ARIMA插补，保留原始列
+            self.logger.info(f"对{self.data_type}数据进行插补，保留原始列并创建_filled列")
+            self.raw_data = fill_missing_values_multicolumn(self.raw_data, time_col='record_time', 
+                                                          time_freq=self.time_freq, keep_original=True)
+    
+    def _process_aqi_data(self):
+        """处理aqi数据"""
+        self.logger.info("对aqi数据进行插补，保留原始列并创建_filled列")
+        self.raw_data = fill_environmental_data(self.raw_data, time_col='record_time', 
+                                              time_freq=self.time_freq, keep_original=True)
+
+    def _process_nai_data(self):
+        """处理nai数据"""
+        self.logger.info("对nai数据进行插补，保留原始列并创建_filled列")
+        self.raw_data = fill_missing_values_multicolumn(self.raw_data, time_col='record_time', 
+                                                      value_cols=['nai'], time_freq=self.time_freq, 
+                                                      keep_original=True)
+
+    def _process_sapflow_data(self):
+        """处理sapflow数据"""
+        self.logger.info("对sapflow数据进行插补，保留原始列并创建_filled列")
+        self.raw_data = fill_missing_values_multicolumn(self.raw_data, time_col='record_time', 
+                                                      time_freq=self.time_freq, keep_original=True)

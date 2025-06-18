@@ -104,13 +104,13 @@ def threshold_limit_general(data, qc_indicators, data_type):
                 if data_type == 'aqi':
                     if re.sub(r"\W", "_", indicator["en_name"]).lower() == col:
                         condition = (data[col] < float(indicator['qc_lower_limit'])) | (data[col] > float(indicator['qc_upper_limit']))
-                        data[col + "_threshold_limit"] = data[col]
-                        data.loc[condition, col + "_threshold_limit"] = np.nan
+                        # 直接在原列上设置NaN，而不是创建新列
+                        data.loc[condition, col] = np.nan
                 else:
                     if indicator['code'] == col:
                         condition = (data[col] < float(indicator['qc_lower_limit'])) | (data[col] > float(indicator['qc_upper_limit']))
-                        data[col + "_threshold_limit"] = data[col]
-                        data.loc[condition, col + "_threshold_limit"] = np.nan
+                        # 直接在原列上设置NaN，而不是创建新列
+                        data.loc[condition, col] = np.nan
     except Exception as e:
         print(f"阈值处理出错: {e}")
     
@@ -128,7 +128,7 @@ def threshold_limit_sapflow(data, qc_indicators):
     Returns:
         阈值处理后的数据
     """
-    # 首先进行一般的阈值处理
+    # 首先进行一般的阈值处理（直接在原列上过滤）
     data = threshold_limit_general(data, qc_indicators, 'sapflow')
     
     # 对特定的列进行额外处理
@@ -136,7 +136,8 @@ def threshold_limit_sapflow(data, qc_indicators):
         for col in data.columns:
             # 如果列名以 tc_dtca_ 开头，执行 del_abnormal_data_sapflow 函数
             if indicator['code'] == col and col.startswith('tc_dtca_'):
-                data = del_abnormal_data_sapflow(data, ta_name="ta_1_2_1_threshold_limit", daca_name=col + "_threshold_limit")
+                # 传入原始列名而不是带后缀的列名
+                data = del_abnormal_data_sapflow(data, ta_name="ta_1_2_1", daca_name=col)
     
     # 茎流速率 用5倍标准差再筛选一遍数据
     data = standard_deviation_limit(data)
@@ -155,7 +156,7 @@ def threshold_limit_aqi(data, qc_indicators):
     Returns:
         阈值处理后的数据
     """
-    # 首先进行一般的阈值处理
+    # 首先进行一般的阈值处理（直接在原列上过滤）
     data = threshold_limit_general(data, qc_indicators, 'aqi')
     
     # 补半点数据将用前后整点数据的均值来插补，若前后至少有一个是NaN那么这个半点的数据就是NaN
@@ -174,7 +175,7 @@ def threshold_limit_aqi(data, qc_indicators):
     return data
 
 
-def del_abnormal_data_sapflow(raw_data, ta_name="ta_1_2_1_threshold_limit", daca_name="tc_dtca_1__threshold_limit"):
+def del_abnormal_data_sapflow(raw_data, ta_name="ta_1_2_1", daca_name="tc_dtca_1"):
     """
     删除sapflow数据中的异常值
     
@@ -246,12 +247,13 @@ def standard_deviation_limit(data):
     Returns:
         处理后的数据
     """
-    sapflow_data = pd.DataFrame()
+    # 识别需要处理的列（不包括时间列）
+    process_cols = [col for col in data.columns if col != 'record_time']
     
-    # 提取需要处理的列
-    for col in data.columns:
-        if col.endswith('_limit'):
-            sapflow_data[col+'_std'] = data[col]
+    if not process_cols:
+        return data
+        
+    sapflow_data = data[process_cols].copy()
     
     index = 0
     while index < sapflow_data.shape[0]:
@@ -274,21 +276,18 @@ def standard_deviation_limit(data):
         upper_bound = window_mean + window_std
         lower_bound = window_mean - window_std
         
-        for col in sapflow_data.columns:
+        for col in process_cols:
             mask = (sapflow_data.iloc[index:index + 480][col] > upper_bound[col]) | \
                    (sapflow_data.iloc[index:index + 480][col] < lower_bound[col])
             sapflow_data.loc[index:index + 479, col].loc[mask] = np.nan
             
         index += 96
     
-    # 添加时间列
-    sapflow_data['record_time'] = data['record_time']
-    
-    # 合并数据
-    full_data = pd.merge(data, sapflow_data, how='outer', on='record_time')
+    # 将处理后的数据更新回原始数据
+    data[process_cols] = sapflow_data
     
     # 只保留整点和半点数据
-    full_data['record_time'] = pd.to_datetime(full_data['record_time'])
-    new_data = full_data[~full_data['record_time'].dt.minute.isin([15, 45])]
+    data['record_time'] = pd.to_datetime(data['record_time'])
+    new_data = data[~data['record_time'].dt.minute.isin([15, 45])]
     
     return new_data

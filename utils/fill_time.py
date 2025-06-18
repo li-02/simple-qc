@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import os
 
-def fill_time(raw_data: pd.DataFrame, time_freq: str = "auto") -> pd.DataFrame:
+def fill_time(raw_data: pd.DataFrame, time_freq: str = "auto") -> tuple[pd.DataFrame, str]:
     # 删除 id 字段（如果存在）
     if "id" in raw_data.columns:
         del raw_data["id"]
@@ -16,14 +16,15 @@ def fill_time(raw_data: pd.DataFrame, time_freq: str = "auto") -> pd.DataFrame:
     raw_data = raw_data.sort_values("record_time")
 
     # 自动检测时间间隔
+    detected_freq = time_freq
     if time_freq == "auto":
-        time_freq = detect_time_frequency(raw_data)
-        print(f"自动检测到时间间隔: {time_freq}")
+        detected_freq = detect_time_frequency(raw_data)
+        print(f"自动检测到时间间隔: {detected_freq}")
 
     # 生成完整的时间序列
     start_time = raw_data["record_time"].min()
     end_time = raw_data["record_time"].max()
-    complete_time_index = pd.date_range(start=start_time, end=end_time, freq=time_freq)
+    complete_time_index = pd.date_range(start=start_time, end=end_time, freq=detected_freq)
 
     # 构建包含完整时间序列的 DataFrame
     df_complete = pd.DataFrame({"record_time": complete_time_index})
@@ -37,7 +38,7 @@ def fill_time(raw_data: pd.DataFrame, time_freq: str = "auto") -> pd.DataFrame:
 
     # 更新 raw_data
     raw_data = merged
-    return raw_data
+    return raw_data, detected_freq
 
 
 def detect_time_frequency(data):
@@ -76,6 +77,7 @@ if __name__ == "__main__":
     raw_data = pd.read_csv(raw_data_path)
     raw_data["record_time"] = pd.to_datetime(raw_data["record_time"])
     # 使用30分钟间隔填充
-    filled_data = fill_time(raw_data, time_freq="1h")
+    filled_data, detected_freq = fill_time(raw_data, time_freq="1h")
+    print(f"检测到的时间间隔: {detected_freq}")
     # 另存为csv
     filled_data.to_csv(raw_data_path, index=False)

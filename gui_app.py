@@ -14,6 +14,10 @@ from pathlib import Path
 import sys
 import io
 from contextlib import redirect_stdout, redirect_stderr
+import concurrent.futures
+import contextvars
+from core.data_qc import DataQc
+from utils.fill_time import fill_time
 
 # pandas兼容性补丁 - 修复iteritems问题
 def _fix_pandas_compatibility():
@@ -43,57 +47,26 @@ class SuppressStderr:
         sys.stderr = self.old_stderr
 
 # 检查R语言依赖
-R_AVAILABLE = False
-R_ERROR_MSG = ""
+R_AVAILABLE = True
+R_ERROR_MSG = "R语言环境检查通过"
 
-try:
-    # 首先尝试设置R环境
-    import os
-    import sys
-    
-    # 可能的R安装路径
-    possible_r_paths = [
-        r'C:\Program Files\R\R-4.4.2',
-        r'C:\Program Files\R\R-4.3.3',
-        r'C:\Program Files\R\R-4.3.2',
-        r'C:\Program Files (x86)\R\R-4.4.2',
-        r'C:\Program Files (x86)\R\R-4.3.3',
-    ]
-    
-    # 查找并设置R_HOME
-    for r_path in possible_r_paths:
-        if os.path.exists(r_path):
-            os.environ['R_HOME'] = r_path
-            r_bin = os.path.join(r_path, 'bin', 'x64')
-            if os.path.exists(r_bin):
-                os.environ['PATH'] = r_bin + os.pathsep + os.environ.get('PATH', '')
-            break
-    
-    # 抑制rpy2导入时的错误输出
-    with SuppressStderr():
-        # 导入您的数据处理模块
-        from core.data_qc import DataQc
-        from utils.fill_time import fill_time
-        from utils.validators import validate_args
-    R_AVAILABLE = True
-    
-except ImportError as e:
-    R_ERROR_MSG = f"R语言相关模块导入失败: {str(e)}"
-    print(f"警告: {R_ERROR_MSG}")
-    
-    # 创建模拟的类和函数以避免导入错误
-    class DataQc:
-        def __init__(self, **kwargs):
-            pass
-        def data_qc(self):
-            raise Exception("R语言环境未正确配置")
-    
-    def fill_time(data, time_freq="30min"):
-        return data
-    
-    def validate_args(args):
-        return True, []
+def get_r_home():
+    if getattr(sys, 'frozen', False):
+        base_dir = sys._MEIPASS if hasattr(sys, '_MEIPASS') else os.path.dirname(sys.executable)
+    else:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_dir, "R-4.4.2")
 
+R_HOME = get_r_home()
+os.environ["R_HOME"] = R_HOME
+os.environ["PATH"] = os.path.join(R_HOME, "bin", "x64") + os.pathsep + os.environ.get("PATH", "")
+
+def resource_path(relative_path):
+    if hasattr(sys, '_MEIPASS'):
+        base_path = sys._MEIPASS
+    else:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, relative_path)
 
 class DataQCGUI:
     def __init__(self, root):
@@ -108,9 +81,9 @@ class DataQCGUI:
         # 变量
         self.file_path = tk.StringVar()
         self.data_type = tk.StringVar(value="flux")
-        self.ftp_name = tk.StringVar(value="shisanling")
-        self.longitude = tk.DoubleVar(value=116.28824)
-        self.latitude = tk.DoubleVar(value=40.265635)
+        self.ftp_name = tk.StringVar(value="")
+        self.longitude = tk.DoubleVar()
+        self.latitude = tk.DoubleVar()
         self.is_strg = tk.IntVar(value=0)
         self.despiking_z = tk.DoubleVar(value=4.0)
         self.is_processing = False
@@ -245,14 +218,15 @@ class DataQCGUI:
         
         # 存储结果数据
         self.result_data = None
-        
+
     def load_qc_indicators(self):
         """加载QC指标"""
         try:
-            qc_indicators = pd.read_csv("qc_indicators.csv")
+            path = resource_path("qc_indicators.csv")
+            print("尝试加载路径：", path)
+            qc_indicators = pd.read_csv(path)
             return qc_indicators.to_dict("records")
         except Exception as e:
-            # 在界面创建之前，使用print而不是log_message
             print(f"警告: 无法加载QC指标文件: {str(e)}")
             return []
     
@@ -345,10 +319,12 @@ class DataQCGUI:
         self.log_message(f"站点: {self.ftp_name.get()}")
         self.log_message(f"坐标: ({self.longitude.get()}, {self.latitude.get()})")
         
-        # 在后台线程中运行处理
-        processing_thread = threading.Thread(target=self.run_data_qc)
-        processing_thread.daemon = True
-        processing_thread.start()
+        # 用 contextvars.copy_context() 保证 rpy2 的 context 传递到新线程
+        ctx = contextvars.copy_context()
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        # 保存 executor 以便后续管理（可选）
+        self._executor = executor
+        executor.submit(ctx.run, self.run_data_qc)
     
     def stop_processing(self):
         """停止处理"""
@@ -424,7 +400,8 @@ class DataQCGUI:
             
             # 确保数据文件时间间隔为半小时
             self.log_message("正在处理时间序列...")
-            data = fill_time(data, time_freq="auto")
+            data, detected_time_freq = fill_time(data, time_freq="auto")
+            self.log_message(f"检测到的时间间隔: {detected_time_freq}")
             
             if not self.is_processing:
                 return
@@ -450,6 +427,7 @@ class DataQCGUI:
                 timezone=8,
                 filename=args.file_path,
                 logger=self.gui_logger,
+                time_freq=detected_time_freq,
             )
             
             if not self.is_processing:
