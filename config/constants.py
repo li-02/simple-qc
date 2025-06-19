@@ -9,7 +9,7 @@ CAMPBELL_SITES = ['aosen', 'badaling']
 VALID_DATA_TYPES = ["flux", "aqi", "sapflow", "nai", "micro_meteorology"]
 
 # 不需要转换为float的列
-NOT_CONVERT_LIST = ['record_time', 'qc_co2_flux', 'qc_h2o_flux', 'qc_h', 'qc_le']
+NOT_CONVERT_LIST = ['record_time']
 
 # 无需使用的列表
 NO_USE_LIST = ['co2_flux', 'h2o_flux', 'le', 'h']

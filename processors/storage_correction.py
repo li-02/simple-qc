@@ -75,12 +75,6 @@ def copy_flux_columns_without_qc_filter(data):
     data['h2o_flux_filter_label'] = data['h2o_flux']
     data['le_filter_label'] = data['le']
     data['h_filter_label'] = data['h']
-
-    # 转换QC标记类型
-    data['qc_co2_flux'] = data['qc_co2_flux'].astype('float')
-    data['qc_h2o_flux'] = data['qc_h2o_flux'].astype('float')
-    data['qc_le'] = data['qc_le'].astype('float')
-    data['qc_h'] = data['qc_h'].astype('float')
     
     return data
 
@@ -97,7 +91,7 @@ def handle_campbell_special_case(data):
     """
     data['co2_flux_filter_label'] = data['co2_flux']
 
-    # 八达岭、奥森没有h2o_flux、qc_co2_flux、qc_h2o_flux
+    # 八达岭、奥森没有h2o_flux，需要计算
     # 计算h2o_flux
     data['h2o_flux'] = (data['le'].astype(float)) / 2450 / 18 * 1000
     data['h2o_flux_filter_label'] = data['h2o_flux']
@@ -110,14 +104,14 @@ def handle_campbell_special_case(data):
 
 def filter_flux_by_qc_flags(data, excluded_qc_flags):
     """
-    根据QC标记过滤通量数据
+    复制通量数据（已移除QC标记过滤功能）
     
     Args:
         data: 数据DataFrame
-        excluded_qc_flags: 要排除的QC标记列表
+        excluded_qc_flags: 要排除的QC标记列表（已废弃，保留参数兼容性）
         
     Returns:
-        过滤后的数据
+        处理后的数据
     """
     # 复制通量列
     data['co2_flux_filter_label'] = data['co2_flux']
@@ -125,20 +119,4 @@ def filter_flux_by_qc_flags(data, excluded_qc_flags):
     data['le_filter_label'] = data['le']
     data['h_filter_label'] = data['h']
     
-    try:
-        # 根据QC标记过滤数据
-        data.loc[data['qc_co2_flux'].isin(excluded_qc_flags), 'co2_flux_filter_label'] = np.nan
-        data.loc[data['qc_h2o_flux'].isin(excluded_qc_flags), 'h2o_flux_filter_label'] = np.nan
-        data.loc[data['qc_le'].isin(excluded_qc_flags), 'le_filter_label'] = np.nan
-        data.loc[data['qc_h'].isin(excluded_qc_flags), 'h_filter_label'] = np.nan
-
-        # 转换QC标记类型
-        data['qc_co2_flux'] = data['qc_co2_flux'].astype('float')
-        data['qc_h2o_flux'] = data['qc_h2o_flux'].astype('float')
-        data['qc_le'] = data['qc_le'].astype('float')
-        data['qc_h'] = data['qc_h'].astype('float')
-
-        return data
-    except Exception as e:
-        print(f"QC标记过滤出错: {e}")
-        return data
+    return data

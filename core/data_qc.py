@@ -51,7 +51,7 @@ class DataQc:
             filename: 文件名
             longitude: 经度
             latitude: 纬度
-            qc_flag_list: 质量标记列表
+            qc_flag_list: 质量标记列表（已废弃，保留以确保向后兼容性）
             is_strg: 是否进行存储项校正
             timezone: 时区
             qc_indicators: 质量控制指标
@@ -63,7 +63,7 @@ class DataQc:
             time_freq: 时间间隔，默认为"30min"
         """
         self.filename = filename
-        self.qc_flag_list = qc_flag_list
+        self.qc_flag_list = qc_flag_list  # 保留以确保向后兼容性，但不再使用
         self.is_strg = is_strg
         self.task_id = task_id
         self.despiking_z = despiking_z
@@ -165,8 +165,8 @@ class DataQc:
 
     def _process_flux_data(self):
         """处理flux类型数据"""
-        # 按照质量标签筛选数据
-        self.logger.info("根据质量标签筛选数据")
+        # 复制通量数据
+        self.logger.info("复制通量数据")
         self._filter_by_quality()
 
         # 添加存储项
@@ -197,19 +197,11 @@ class DataQc:
         self._ustar_fill_partition()
 
     def _filter_by_quality(self):
-        """根据QC标记列表筛选通量数据"""
-        excluded_qc_flags = [
-            flag for flag in ["0", "1", "2"] if flag not in self.qc_flag_list
-        ]
-
-        # 如果没有排除的QC标记，则直接复制通量列
-        if len(excluded_qc_flags) == 0:
-            if self.ftp in CAMPBELL_SITES:
-                self.raw_data = handle_campbell_special_case(self.raw_data)
-            else:
-                self.raw_data = copy_flux_columns_without_qc_filter(self.raw_data)
+        """复制通量数据（已移除QC标记筛选功能）"""
+        if self.ftp in CAMPBELL_SITES:
+            self.raw_data = handle_campbell_special_case(self.raw_data)
         else:
-            self.raw_data = filter_flux_by_qc_flags(self.raw_data, excluded_qc_flags)
+            self.raw_data = copy_flux_columns_without_qc_filter(self.raw_data)
 
     def _add_strg(self):
         """进行存储项校正"""
